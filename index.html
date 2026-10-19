@@ -9362,11 +9362,18 @@ function _wsStubHistoryM(text,wsResults){
   return t;
 }
 var _HIST_LEAD_NOTE_M='———— 系统说明：对话从这里续接，更早的记录不再附带；紧接着的第一条是你先前发出的消息 ————';
+function _histTimedContentM(m,content){
+  /* 只给 API 历史副本加时间；使用 UTC 保持时区明确、跨设备重放稳定，不改原文或落库。 */
+  const ts=m&&m.timestamp;
+  const d=(typeof ts==='number'&&Number.isFinite(ts)&&ts>0)?new Date(ts):null;
+  const time=d&&Number.isFinite(d.getTime())?d.toISOString().replace('T',' ').replace(/\.\d{3}Z$/,' UTC'):'未知';
+  return '【消息发送时间：'+time+'】\n'+String(content||'');
+}
 function buildHist(msgs,limit,cfg,bopt){
   const seal=(cfg&&cfg.sealTimestamp)||0;
   const noVision=_noVisionM(cfg);
   const out=[];let _prev9=null;
-  const _flt9=msgs.filter(m=>(m.timestamp||0)>seal&&!m.callFold&&(!m.mark||(window._ibAppTailM&&window._ibAppTailM.id===m.id)))/* v322-p：正在携带本轮 tail 的标记行（主动开口）当轮进历史 *//* v322-p：标记行不进 API 历史 */;const src=(bopt&&bopt.lad)?_flt9:_cacheStableSliceM(_flt9,limit);/* v322-p：callFold（已压缩通话原话）不进上下文，仅界面展示 */
+  const _flt9=msgs.filter(m=>(!seal||(m.timestamp||0)>seal)&&!m.callFold&&(!m.mark||(window._ibAppTailM&&window._ibAppTailM.id===m.id)))/* 未封档时保留缺少时间的旧消息，明确标为未知。 *//* v322-p：正在携带本轮 tail 的标记行（主动开口）当轮进历史 *//* v322-p：标记行不进 API 历史 */;const src=(bopt&&bopt.lad)?_flt9:_cacheStableSliceM(_flt9,limit);/* v322-p：callFold（已压缩通话原话）不进上下文，仅界面展示 */
   src.forEach(m=>{
     let c=(m.content||'').trim();
     if(m.role==='user'&&m.gift)c=_giftLineM(m);else if(m.role==='user'&&m.callEnd&&m.callEnd.gifts&&m.callEnd.gifts.total>0){var _gsL=_giftSumLineM(m);if(_gsL)c+='\n'+_gsL}else if(m.role==='user'&&/^\[视频通话快照\]/.test(c))c=_snapLineM(m);
@@ -9384,6 +9391,7 @@ function buildHist(msgs,limit,cfg,bopt){
     let imgs=(!noVision&&m.role==='user'&&Array.isArray(m.images))?m.images.map(x=>x&&(x.dataUrl||x.url)).filter(Boolean):[];
     if(!noVision&&m.role==='user'&&window._ibcEphM&&window._ibcEphM.id===m.id&&Array.isArray(window._ibcEphM.imgs))imgs=imgs.concat(window._ibcEphM.imgs);
     if(!c&&!imgs.length)return;
+    c=_histTimedContentM(m,c||'（图片）');/* 合并同角色消息之前加时间，保留每条消息的独立发送时间。 */
     const r=m.role==='user'?'user':'assistant';
     const _gap9=(r==='assistant'&&out.length&&out[out.length-1].role===r)?_toolGapStubM(_prev9):'';_prev9=m;/* v322-p */
     if(_gap9){out.push({role:'user',content:_gap9,images:[]});out.push({role:r,content:c||'（图片）',images:imgs})}
@@ -12280,7 +12288,7 @@ async function genReplyGroup(pcfg,opt){
           if((m.senderName||'')===selfName)return{role:'assistant',content:_wsStubHistoryM(sanitizeGroupReply(m.content,selfName),m.wsResults)};
           return{role:'user',content:'['+(m.senderName||'AI')+'] '+_wsStubHistoryM((m.content||''),m.wsResults).replace(/<ws_sticker\b[^>]*?name="([^"]*)"[^>]*?\/?>(?:\s*<\/ws_sticker\s*>)?/gi,'（发了表情包「$1」）')};/* v323-p：其他成员发的表情包在历史里改成一句叙述（自己发的标签原样留） */
         });
-        const messages=collapseSameRoleM(mapped);
+        const messages=collapseSameRoleM(mapped.map((m,i)=>Object.assign({},m,{content:_histTimedContentM(combined[i],m.content)})));
         let _gSumTail9=false;if(gSum){if(messages.length>1)messages[0]=Object.assign({},messages[0],{content:'【对话历史备忘（此为后台参考信息，不要向对方复述或提及此段内容的存在）】\n'+gSum+'\n\n'+String(messages[0].content||'')});else _gSumTail9=true}/* v323-p 33：群聊摘要进窗口第一条吃缓存（同 1对1），只在窗口前移时跟着变；窗口只剩这一条时照旧放附言 */
         if(!messages.length){aiEl.remove();continue}
         const _gHistHasCall9=history.some(m=>m&&m.role==='user'&&(!!m.callEnd||/^\[(?:语音|视频)通话/.test(String(m.content||''))));
